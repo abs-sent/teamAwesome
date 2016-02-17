@@ -17,6 +17,11 @@
 
 /* -------------------------- Globals ------------------------------------- */
 
+// typedef struct  P1_Semaphore {
+//   int count;
+
+// }P1_Semaphore;
+
 typedef struct PCB {
     USLOSS_Context      context;
     int                 (*startFunc)(void *);   /* Starting function */
@@ -54,11 +59,12 @@ static void launch(void);
 static void removeProc(int PID);
 static void Check_Your_Privilege();
 static void free_Procs();
-static int P1_ReadTime(void);
-static P1_Semaphore P1_SemCreate(unsigned int value);
-static int P1_SemFree(P1_Semaphore sem);
-static P1_P(P1_Semaphore sem);
-static P1_V(P1_Semaphore sem);
+//static int P1_ReadTime(void);
+
+// static P1_Semaphore P1_SemCreate(unsigned int value);
+// static int P1_SemFree(P1_Semaphore sem);
+// static P1_P(P1_Semaphore sem);
+// static P1_V(P1_Semaphore sem);
 
 
 /* -------------------------- Functions ----------------------------------- */
@@ -71,16 +77,17 @@ static P1_V(P1_Semaphore sem);
    ----------------------------------------------------------------------- */
 
 void free_Procs(){
-  PCB* blockedListPos=&blockedHead;
-  while(blockedListPos->nextPCB!=NULL){
-    if(blockedListPos->nextPCB->state==3&&blockedListPos->nextPCB->notFreed){
-      blockedListPos->nextPCB->notFreed=0;
-      // USLOSS_Console("Freeing A proccess: %s\n",blockedListPos->nextPCB->name);
-      free(blockedListPos->nextPCB->stack);
-      // USLOSS_Console("Freed Proc\n");
+  
+  for(int i = 0; i <P1_MAXPROC; i++){
+    if(procTable[i].state == 3 && procTable[i].notFreed) {
+      free(procTable[i].stack); // free
+      //USLOSS_Console("Freed %s\n",procTable[i].name);
+      free(procTable[i].name);
+      procTable[i].notFreed = 0;
+      if(procTable[i].isOrphan){
+        procTable[i].priority=-1;
+      }
     }
-    // USLOSS_Console("Next proccess To Free: %s\n",blockedListPos->nextPCB->name);
-    blockedListPos=blockedListPos->nextPCB;
   }
 }
 
@@ -193,6 +200,14 @@ int P1_GetPID(){
 
 int P1_Join(int *status){
    Check_Your_Privilege();
+   if(procTable[currPid].children[0] == 0){
+    return -1;
+   }
+
+   // get the PID of the child that quit
+   for(int i = 0; i < P1_MAXPROC; i++){
+
+   }
     return 0;
 }
 
@@ -252,13 +267,13 @@ void Check_Your_Privilege(){
 }
 
 
-P1_Semaphore P1_SemCreate(unsigned int value){
+// P1_Semaphore P1_SemCreate(unsigned int value){
 
-}
+// }
 
-int P1_SemFree(P1_Semaphore sem){
+// int P1_SemFree(P1_Semaphore sem){
   
-}
+// }
 
 /* ------------------------------------------------------------------------
    Name - P1_Fork
@@ -275,6 +290,10 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
 {
     /*Check current Mode. If not Kernel Mode return error*/
     Check_Your_Privilege();
+
+    //free the available spots
+    free_Procs();
+
     /*Check Priority and Stack Size*/
     if(priority<1||priority>6){//is priority # valid
       return -3;
@@ -314,7 +333,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
       procTable[newPid].children[c]=0;
     }
     procTable[newPid].priority=priority;
-    procTable[newPid].name=name;
+    procTable[newPid].name=strdup(name);
     procTable[newPid].startFunc = f;
     procTable[newPid].startArg = arg;
     procTable[newPid].isOrphan= 0;

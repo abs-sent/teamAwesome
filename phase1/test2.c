@@ -12,7 +12,8 @@ int Child(void *arg) {
     int     state;
     int     status = 0;
     USLOSS_Console("Child\n");
-    pid = P1_Fork("Grandchild", Grandchild, NULL, USLOSS_MIN_STACK, 2);
+    P1_DumpProcesses();
+	pid = P1_Fork("Grandchild", Grandchild, NULL, USLOSS_MIN_STACK, 2);
     if (pid < 0) {
         USLOSS_Console("Unable to fork child: %d\n", pid);
         status = 1;
@@ -45,6 +46,7 @@ if (pid < 0) {
         status = 1;
     }
 //	USLOSS_Console("in p2Startup");
+	P1_DumpProcesses();
     return status;
 }
 
