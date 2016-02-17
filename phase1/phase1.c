@@ -15,12 +15,14 @@
 #include "phase1.h"
 #include <string.h>
 
+#define DEFAULT -99;
 /* -------------------------- Globals ------------------------------------- */
 
-// typedef struct  P1_Semaphore {
-//   int count;
+typedef struct 
+{
+  int value;
 
-// }P1_Semaphore;
+}Semaphore;
 
 typedef struct PCB {
     USLOSS_Context      context;
@@ -30,6 +32,7 @@ typedef struct PCB {
     int cpuTime;
     int isOrphan;
     int state;//0=running, 1=ready,2=killed,3=quit,4=waiting
+    int status;
     int children[P1_MAXPROC];
     int parent;
     int priority;
@@ -61,10 +64,10 @@ static void Check_Your_Privilege();
 static void free_Procs();
 //static int P1_ReadTime(void);
 
-// static P1_Semaphore P1_SemCreate(unsigned int value);
-// static int P1_SemFree(P1_Semaphore sem);
-// static P1_P(P1_Semaphore sem);
-// static P1_V(P1_Semaphore sem);
+P1_Semaphore P1_SemCreate(unsigned int value);
+int P1_SemFree(P1_Semaphore sem);
+int P1_P(P1_Semaphore sem);
+int P1_V(P1_Semaphore sem);
 
 
 /* -------------------------- Functions ----------------------------------- */
@@ -267,9 +270,20 @@ void Check_Your_Privilege(){
 }
 
 
-// P1_Semaphore P1_SemCreate(unsigned int value){
+P1_Semaphore P1_SemCreate(unsigned int value){
+  P1_Semaphore semPointer; 
+  Semaphore* semi= malloc(sizeof(Semaphore));
+  semi->value = value;
+  semPointer = &semi;
+  return semPointer;
 
-// }
+}
+
+int P1_SemFree(P1_Semaphore sem){
+  //if sem is invalid return -1
+  free(sem);
+  return 0;
+}
 
 // int P1_SemFree(P1_Semaphore sem){
   
@@ -320,6 +334,8 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     procTable[newPid].PID=newPid;
     procTable[newPid].cpuTime=0;
     procTable[newPid].state=1;//0=running 1=ready,2=killed,3=quit,4=waiting
+
+    procTable[newPid].status=DEFAULT;
 
     if(currPid>=0){//Makes sure the parent exists
       procTable[currPid].children[newPid]=1;//add child to parent
@@ -411,6 +427,7 @@ void P1_Quit(int status) {
  // USLOSS_Console("Process: %s Quitting\n",procTable[currPid].name);
   
   procTable[currPid].state = 3;
+  procTable[currPid].status = status;
   numProcs--;
  // USLOSS_Console("Process state: %d\n", procTable[currPid].state);
  // USLOSS_Console("PID :  %d\n", currPid);
