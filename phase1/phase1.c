@@ -18,12 +18,6 @@
 #define DEFAULT -99;
 /* -------------------------- Globals ------------------------------------- */
 
-typedef struct 
-{
-  int value;
-
-}Semaphore;
-
 typedef struct PCB {
     USLOSS_Context      context;
     int                 (*startFunc)(void *);   /* Starting function */
@@ -33,7 +27,7 @@ typedef struct PCB {
     int isOrphan;
     int state;//0=running, 1=ready,2=killed,3=quit,4=waiting
     int status;
-    int children[P1_MAXPROC];
+    int numChildren;
     int parent;
     int priority;
     char* name;
@@ -42,6 +36,12 @@ typedef struct PCB {
     struct PCB* nextPCB;
     struct PCB* prevPCB;    
 } PCB;
+
+typedef struct 
+{
+  int value;
+  struct PCB *queue;
+}Semaphore;
 
 int dispatcherTimeTracker=-1;
 /* the process table */
@@ -146,6 +146,7 @@ void dispatcher()
    ----------------------------------------------------------------------- */
 void startup()
 {
+  Check_Your_Privilege();
   int i;
   /* initialize the process table here */
   for(i = 0; i < P1_MAXPROC; i++){
@@ -191,7 +192,8 @@ void startup()
    ----------------------------------------------------------------------- */
 void finish()
 {
-  free_Procs();
+  Check_Your_Privilege();
+  // free_Procs();
   USLOSS_Console("Goodbye.\n");
 } /* End of finish */
 
@@ -203,7 +205,7 @@ int P1_GetPID(){
 
 int P1_Join(int *status){
    Check_Your_Privilege();
-   if(procTable[currPid].children[0] == 0){
+   if(procTable[currPid].numChildren == 0){
     return -1;
    }
 
@@ -249,15 +251,10 @@ void P1_DumpProcesses(){// Do CPU Time Part
             statePhrase="Waiting";
             break;
         }
-        int numChildren=0;
-        int c;
-        for(c=0;c<P1_MAXPROC;c++){
-          if(procTable[i].children[c])
-            numChildren++;
-        }
+        
         USLOSS_Console("Name:%s\t PID:%-5d\tParent:%d\tPriority:%d\tState:%s\tKids%d\tCPUTime:%d\n",
                 procTable[i].name,i,procTable[i].parent,procTable[i].priority,
-                statePhrase,numChildren,procTable[i].cpuTime); 
+                statePhrase,procTable[i].numChildren,procTable[i].cpuTime); 
     }
 }
 
@@ -271,6 +268,7 @@ void Check_Your_Privilege(){
 
 
 P1_Semaphore P1_SemCreate(unsigned int value){
+
   P1_Semaphore semPointer; 
   Semaphore* semi= malloc(sizeof(Semaphore));
   semi->value = value;
@@ -280,14 +278,43 @@ P1_Semaphore P1_SemCreate(unsigned int value){
 }
 
 int P1_SemFree(P1_Semaphore sem){
-  //if sem is invalid return -1
+  Check_Your_Privilege();
+  //if sem is invalid return -1, sem is invalid if it is not created using SemCreate method
   free(sem);
   return 0;
 }
 
-// int P1_SemFree(P1_Semaphore sem){
-  
-// }
+int P1_P(P1_Semaphore sem){
+  Check_Your_Privilege();
+  Semaphore* semP=(Semaphore*)sem;
+  while(1){
+    // interrupt disable HERE;
+
+    if(semP->value > 0){
+      semP->value--;
+      break;
+    }
+  }
+  //interrupt enable
+  return 0;
+}
+
+int P1_V(P1_Semaphore sem){
+  Check_Your_Privilege();
+  // interrupt disable HERE!
+  Semaphore* semP=(Semaphore*)sem;
+  semP->value++;
+  if(semP->queue != NULL){
+    //addToReady
+    dispatcher();
+  }
+  // interrupt enable HERE!
+  return 0;
+}
+
+
+
+
 
 /* ------------------------------------------------------------------------
    Name - P1_Fork
@@ -337,17 +364,12 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
 
     procTable[newPid].status=DEFAULT;
 
-    if(currPid>=0){//Makes sure the parent exists
-      procTable[currPid].children[newPid]=1;//add child to parent
-      procTable[newPid].parent=currPid;//set parent process
-    }else{
+    if(currPid==-1){
       procTable[newPid].parent=-1;
       procTable[newPid].isOrphan=1;
     }
-    int c;
-    for(c=0;c<P1_MAXPROC;c++){//set childrem to 0
-      procTable[newPid].children[c]=0;
-    }
+    procTable[currPid].numChildren++;//increment parents numChildren
+    procTable[newPid].numChildren=0;
     procTable[newPid].priority=priority;
     procTable[newPid].name=strdup(name);
     procTable[newPid].startFunc = f;
@@ -396,10 +418,10 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
    Returns - nothing
    Side Effects - enable interrupts
    ------------------------------------------------------------------------ */
-void launch(void)
-{
+void launch(void){
+  Check_Your_Privilege();
   int  rc;
-  //USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+  USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
   rc = procTable[currPid].startFunc(procTable[currPid].startArg);
   // USLOSS_Console("Laung Ending for %s\n",procTable[currPid].name);
   /* quit if we ever come back */
@@ -419,7 +441,7 @@ void P1_Quit(int status) {
   
   int i;
   for (i = 0; i < P1_MAXPROC; i++) {
-      if(procTable[currPid].children[i]){
+      if(procTable[i].PID==currPid){
           procTable[i].isOrphan = 1; // orphanize the children
       }
   }
@@ -493,7 +515,7 @@ int P1_Kill(int PID,int status){
 int sentinel (void *notused)
 {
  // USLOSS_Console("in sentinel\n");
-
+  Check_Your_Privilege();
   /*No Interupts within Part 1 so commented out*/
   while (numProcs > 1)
   {
