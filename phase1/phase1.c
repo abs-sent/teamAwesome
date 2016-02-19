@@ -112,12 +112,13 @@ void addToReadyList(int PID){
 }
 
 void addToBlockedList(int PID){
+  /*Add to blocked List*/
   PCB* pos=&blockedHead;
-  while(pos->nextPCB!=NULL){
+  while(pos->nextPCB&&pos->nextPCB->priority<procTable[PID].priority){
+    // USLOSS_Console("Looping on %s\n",pos->nextPCB->name);
     pos=pos->nextPCB;
   }
   procTable[PID].nextPCB=NULL;
-  procTable[PID].prevPCB=pos;
   pos->nextPCB=&(procTable[PID]);
 
 }
@@ -533,4 +534,4 @@ int sentinel (void *notused)
   USLOSS_Halt(0);
   /* Never gets here. */
   return 0;
-} /* End of sentinel 
+} /* End of sentinel */
