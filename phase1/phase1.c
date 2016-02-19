@@ -1,3 +1,4 @@
+ /*
  ------------------------------------------------------------------------
    Team Check Your Privilege
    Members:
@@ -5,7 +6,8 @@
    Abigail Arias
    Skeleton file for Phase 1. These routines are very incomplete and are
    intended to give you a starting point. Feel free to use thiTeams or not.
-   ------------------------------------------------------------------------ */
+   ------------------------------------------------------------------------ 
+   */
 
 #include <stddef.h>
 #include <stdlib.h>
