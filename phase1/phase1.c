@@ -1,12 +1,10 @@
-/* ------------------------------------------------------------------------
+ ------------------------------------------------------------------------
    Team Check Your Privilege
    Members:
    Joshua Redpath
    Abigail Arias
    Skeleton file for Phase 1. These routines are very incomplete and are
    intended to give you a starting point. Feel free to use thiTeams or not.
-
-
    ------------------------------------------------------------------------ */
 
 #include <stddef.h>
@@ -94,6 +92,40 @@ void free_Procs(){
   }
 }
 
+void addToReadyList(int PID){
+  PCB* pos = &readyHead;
+    while(pos->nextPCB!=NULL&&pos->nextPCB->priority<procTable[PID].priority){
+      pos=pos->nextPCB;
+    }
+    if(pos->nextPCB==NULL){
+      pos->nextPCB=&(procTable[PID]);
+      procTable[PID].prevPCB=pos->nextPCB;
+      procTable[PID].nextPCB=NULL;
+    }else{
+      procTable[PID].prevPCB=pos;
+      procTable[PID].nextPCB=pos->nextPCB;
+      pos->nextPCB->prevPCB=&(procTable[PID]);
+      pos->nextPCB=&(procTable[PID]);
+    }
+}
+
+void addToBlockedList(int PID){
+  PCB* pos=&blockedHead;
+  while(pos->nextPCB!=NULL){
+    pos=pos->nextPCB;
+  }
+  procTable[PID].nextPCB=NULL;
+  procTable[PID].prevPCB=pos;
+  pos->nextPCB=&(procTable[PID]);
+
+}
+
+void removeFromList(int PID){
+  if(procTable[PID].nextPCB!=NULL){
+    procTable[PID].nextPCB->prevPCB=procTable[PID].prevPCB;
+  }
+  procTable[PID].prevPCB->nextPCB=procTable[PID].nextPCB;
+}
 
 void dispatcher()
 {
@@ -379,21 +411,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
 
 
     /*add to ready list*/
-    PCB* pos = &readyHead;
-    while(pos->nextPCB!=NULL&&pos->nextPCB->priority<priority){
-      pos=pos->nextPCB;
-    }
-    if(pos->nextPCB==NULL){
-      pos->nextPCB=&(procTable[newPid]);
-      procTable[newPid].prevPCB=pos->nextPCB;
-      procTable[newPid].nextPCB=NULL;
-    }else{
-      procTable[newPid].prevPCB=pos;
-      procTable[newPid].nextPCB=pos->nextPCB;
-      pos->nextPCB->prevPCB=&(procTable[newPid]);
-      pos->nextPCB=&(procTable[newPid]);
-    }
-    
+    addToReadyList(newPid);    
 
     /*increment numProcs*/
     numProcs++;
@@ -402,7 +420,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     USLOSS_ContextInit(&(procTable[newPid].context), USLOSS_PsrGet(), procTable[newPid].stack, 
         stacksize, launch);
 
-
+    /*Run dispatcher if forking higher priority process*/
     if(currPid != -1&&priority<procTable[currPid].priority){
       dispatcher();
     }
@@ -454,22 +472,11 @@ void P1_Quit(int status) {
  // USLOSS_Console("Process state: %d\n", procTable[currPid].state);
  // USLOSS_Console("PID :  %d\n", currPid);
   
-
-
   /*Remove from Ready List*/
-  if(procTable[currPid].nextPCB!=NULL){
-    procTable[currPid].nextPCB->prevPCB=procTable[currPid].prevPCB;
-  }
-  procTable[currPid].prevPCB->nextPCB=procTable[currPid].nextPCB;
+  removeFromList(currPid);
 
   /*Add to blocked List*/
-  PCB* pos=&blockedHead;
-  while(pos->nextPCB&&pos->nextPCB->priority<procTable[currPid].priority){
-    // USLOSS_Console("Looping on %s\n",pos->nextPCB->name);
-    pos=pos->nextPCB;
-  }
-  procTable[currPid].nextPCB=NULL;
-  pos->nextPCB=&(procTable[currPid]);
+  addToBlockedList(currPid);
 
 
   
@@ -482,15 +489,15 @@ void P1_Quit(int status) {
   
   // USLOSS_Console("Number of processes: %d\n", numProcs);
   dispatcher();
-  
-  
 }
+/*End of Quit*/
+
 /*Removes a pcb from procTable*/
 void removeProc(int PID){   
     procTable[PID].priority = -1;
 }
 
-int P1_Kill(int PID,int status){
+int P1_Kill(int PID,int status){//Remove 2nd Parameter
   Check_Your_Privilege();
   if(PID==currPid){
     return -2;
@@ -515,7 +522,6 @@ int P1_Kill(int PID,int status){
 int sentinel (void *notused)
 {
  // USLOSS_Console("in sentinel\n");
-  Check_Your_Privilege();
   /*No Interupts within Part 1 so commented out*/
   while (numProcs > 1)
   {
@@ -525,4 +531,4 @@ int sentinel (void *notused)
   USLOSS_Halt(0);
   /* Never gets here. */
   return 0;
-} /* End of sentinel */
+} /* End of sentinel 
