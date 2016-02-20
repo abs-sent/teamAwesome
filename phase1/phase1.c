@@ -49,6 +49,9 @@ int dispatcherTimeTracker=-1;
 /* the process table */
 PCB procTable[P1_MAXPROC];
 
+/* the semaphore table */
+Semaphore semTable[P1_MAXSEM];
+
 PCB readyHead;
 PCB blockedHead;
 
@@ -198,6 +201,13 @@ void startup()
       //USLOSS_Context DummyCon;
       procTable[i].priority = -1;
       //procTable[i].context=DummyCon;
+  }
+
+  /*initialize the semaphore table*/
+  for(int i=0; i< P1_MAXSEM; i++){
+    Semaphore dummy;
+    semTable[i] = dummy;
+    semTable[i].value = -1;
   } 
 
   /* Initialize the Ready list, Blocked list, etc. here */
@@ -320,13 +330,24 @@ P1_Semaphore P1_SemCreate(unsigned int value){
   Semaphore* semi= malloc(sizeof(Semaphore));
   semi->value = value;
   semPointer = &semi;
-  return semPointer;
 
+  // put the semaphore in the table
+  int i = 0;
+  while(semTable[i].value != -1 && i < P1_MAXSEM){
+    i++;
+  }
+  semTable[i] = *semi;
+  return semPointer;
 }
 
 int P1_SemFree(P1_Semaphore sem){
   Check_Your_Privilege();
   //if sem is invalid return -1, sem is invalid if it is not created using SemCreate method
+  Semaphore* semP=(Semaphore*)sem;
+  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+    USLOSS_Console("Semaphore is invalid\n");
+    USLOSS_Halt(1);
+  }
   free(sem);
   return 0;
 }
