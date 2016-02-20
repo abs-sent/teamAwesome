@@ -15,7 +15,8 @@
 #include "phase1.h"
 #include <string.h>
 
-#define DEFAULT -99;
+#define DEFAULT -99
+#define FIRST_RUN -98
 /* -------------------------- Globals ------------------------------------- */
 
 typedef struct PCB {
@@ -24,6 +25,7 @@ typedef struct PCB {
     void                 *startArg;             /* Arg to starting function */
     int PID;
     int cpuTime;
+    int lastStartedTime;
     int isOrphan;
     int state;//0=running, 1=ready,2=killed,3=quit,4=waiting
     int status;
@@ -80,8 +82,8 @@ int P1_V(P1_Semaphore sem);
    ----------------------------------------------------------------------- */
 
 void free_Procs(){
-  
-  for(int i = 0; i <P1_MAXPROC; i++){
+  int i;
+  for( i= 0; i <P1_MAXPROC; i++){
     if(procTable[i].state == 3 && procTable[i].notFreed) {
       free(procTable[i].stack); // free
       //USLOSS_Console("Freed %s\n",procTable[i].name);
@@ -96,7 +98,7 @@ void free_Procs(){
 
 void addToReadyList(int PID){
   PCB* pos = &readyHead;
-    while(pos->nextPCB!=NULL&&pos->nextPCB->priority<procTable[PID].priority){
+    while(pos->nextPCB!=NULL&&pos->nextPCB->priority<=procTable[PID].priority){
       pos=pos->nextPCB;
     }
     if(pos->nextPCB==NULL){
@@ -128,6 +130,8 @@ void removeFromList(int PID){
     procTable[PID].nextPCB->prevPCB=procTable[PID].prevPCB;
   }
   procTable[PID].prevPCB->nextPCB=procTable[PID].nextPCB;
+  procTable[PID].nextPCB=NULL;
+  procTable[PID].prevPCB=NULL;
 }
 
 void dispatcher()
@@ -136,10 +140,10 @@ void dispatcher()
   // USLOSS_Console("dispatcher Called\n");
   /*Adjust Runttime for current process*/
   int timeRun;
-  if (dispatcherTimeTracker==-1) {
+  if (procTable[currPid].lastStartedTime==FIRST_RUN) {
     timeRun=0;
   }else{
-      timeRun=USLOSS_Clock()-dispatcherTimeTracker;
+      timeRun=USLOSS_Clock()-procTable[currPid].lastStartedTime;
   }
   procTable[currPid].cpuTime+=timeRun;
   /*
@@ -158,14 +162,18 @@ void dispatcher()
     readyListPos=readyListPos->nextPCB;
   }
 
-  dispatcherTimeTracker=USLOSS_Clock();
-  currPid=readyListPos->nextPCB->PID;
+  procTable[currPid].lastStartedTime=USLOSS_Clock();
+
   readyListPos->nextPCB->state=0;//set state to running
   /*Set Proc state to ready unless it has quit or been killed*/
   if(procTable[oldpid].state!=3||procTable[oldpid].state==2){
     procTable[oldpid].state=1;
   }
   currPid = readyListPos->nextPCB->PID;
+  /*Adds currpid to end of its priority section in the Rdy list*/
+  removeFromList(currPid);
+  addToReadyList(currPid);
+
  // USLOSS_Console("In dispatcher PID -- after:  %d\n", currPid); 
   USLOSS_ContextSwitch(&(procTable[oldpid]).context, &(readyListPos->nextPCB->context));
 
@@ -243,9 +251,9 @@ int P1_Join(int *status){
    if(procTable[currPid].numChildren == 0){
     return -1;
    }
-
+  int i;
    // get the PID of the child that quit
-   for(int i = 0; i < P1_MAXPROC; i++){
+   for( i= 0; i < P1_MAXPROC; i++){
 
    }
     return 0;
@@ -287,10 +295,14 @@ void P1_DumpProcesses(){// Do CPU Time Part
             break;
         }
         
-        USLOSS_Console("Name:%s\t PID:%-5d\tParent:%d\tPriority:%d\tState:%s\tKids%d\tCPUTime:%d\n",
+        USLOSS_Console("Name:%s\t PID:%-5d\tParent:%d\tPriority:%d\tState:%s\tKids:%d\tCPUTime:%d\n",
                 procTable[i].name,i,procTable[i].parent,procTable[i].priority,
                 statePhrase,procTable[i].numChildren,procTable[i].cpuTime); 
     }
+}
+
+int P1_ReadTime(void){
+    return USLOSS_Clock()-procTable[currPid].lastStartedTime+procTable[currPid].cpuTime;
 }
 
 /*Checks Whether or not thecurrent process is in Kernel Mode*/
@@ -395,14 +407,15 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     /*set PCB fields*/
     procTable[newPid].PID=newPid;
     procTable[newPid].cpuTime=0;
+    procTable[newPid].lastStartedTime=FIRST_RUN;
     procTable[newPid].state=1;//0=running 1=ready,2=killed,3=quit,4=waiting
 
     procTable[newPid].status=DEFAULT;
 
     if(currPid==-1){
-      procTable[newPid].parent=-1;
       procTable[newPid].isOrphan=1;
     }
+    procTable[newPid].parent=currPid;
     procTable[currPid].numChildren++;//increment parents numChildren
     procTable[newPid].numChildren=0;
     procTable[newPid].priority=priority;
