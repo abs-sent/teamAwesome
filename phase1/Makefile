@@ -25,10 +25,10 @@ endif
 # Set to version of USLOSS you want to use.
 USLOSS_VERSION = 2.11
 
-SRCS = phase1.c
+SRCS = $(wildcard *.c)
 
 # Add any tests here. If the test is named test0 then the source file is assumed to be test0.c.
-TESTS = test2 test10 test8 test7 test6 test5 test4 test9 test0 test1 test3 test45
+TESTS = $(patsubst %.c,%,$(wildcard tests/*.c))
 
 # Change this if you want to change the arguments to valgrind.
 VGFLAGS = --track-origins=yes --leak-check=full --max-stackframe=100000
@@ -101,7 +101,7 @@ $(TESTS):   %: $(TARGET) %.o
 	$(LD) $(LDFLAGS) -o $@ $@.o $(LIBFLAGS)
 
 clean:
-	rm -f $(COBJS) $(TARGET) $(TOBJS) $(TESTS) $(DEPS) $(TVS)
+	rm -f $(COBJS) $(TARGET) $(TOBJS) $(TESTS) $(DEPS) $(TVS) *.out tests/*.out
 
 %.d: %.c
 	$(CC) -c $(CFLAGS) -MM -MF $@ $<
