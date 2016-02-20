@@ -347,6 +347,7 @@ int P1_SemFree(P1_Semaphore sem){
   if(semP->value < 0 && semP->value > P1_MAXSEM-1){
     USLOSS_Console("Semaphore is invalid\n");
     USLOSS_Halt(1);
+    return -1;
   }
   free(sem);
   return 0;
@@ -355,6 +356,16 @@ int P1_SemFree(P1_Semaphore sem){
 int P1_P(P1_Semaphore sem){
   Check_Your_Privilege();
   Semaphore* semP=(Semaphore*)sem;
+
+  // check if the process is killed
+  if(procTable[currPid].state == 2){
+    return -2;
+  }
+  // check if the semaphore is valid
+  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+    USLOSS_Console("Semaphore is invalid\n");
+    return - 1;
+  }
   while(1){
     // interrupt disable HERE;
 
@@ -371,6 +382,12 @@ int P1_V(P1_Semaphore sem){
   Check_Your_Privilege();
   // interrupt disable HERE!
   Semaphore* semP=(Semaphore*)sem;
+  
+  // check if the semaphore is valid
+  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+    USLOSS_Console("Semaphore is invalid\n");
+    return - 1;
+  }
   semP->value++;
   if(semP->queue != NULL){
     //addToReady
