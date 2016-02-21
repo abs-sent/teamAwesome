@@ -51,6 +51,8 @@ PCB procTable[P1_MAXPROC];
 
 /* the semaphore table */
 Semaphore semTable[P1_MAXSEM];
+/*Interrupt Vector*/
+USLOSS (USLOSS_IntVec);
 
 PCB readyHead;
 PCB blockedHead;
@@ -216,7 +218,7 @@ void startup()
   blockedHead.prevPCB=NULL;
   blockedHead.nextPCB=NULL;
   /* Initialize the interrupt vector here */
-
+  USLOSS_IntVec[USLOSS_CLOCK_INT] = clock_handler;
   /* Initialize the semaphores here */
 
   /* startup a sentinel process */
