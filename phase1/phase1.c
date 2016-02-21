@@ -18,6 +18,7 @@
 #define DEFAULT -99
 #define FIRST_RUN -98
 /* -------------------------- Globals ------------------------------------- */
+
 typedef struct PCB {
     USLOSS_Context      context;
     int                 (*startFunc)(void *);   /* Starting function */
@@ -42,7 +43,6 @@ typedef struct
 {
   int value;
   struct PCB *queue;
-  
 }Semaphore;
 
 int dispatcherTimeTracker=-1;
@@ -56,7 +56,6 @@ Semaphore semTable[P1_MAXSEM];
 PCB readyHead;
 PCB blockedHead;
 PCB quitListHead;
-
 /* current process ID */
 int currPid = -1;
 
@@ -194,6 +193,10 @@ void addToQuitList(int PID){
 
 
 void removeFromList(int PID){
+  // USLOSS_Console("ReadyList:");
+  // printList(&readyHead);
+  // USLOSS_Console("QuitList:");
+  // printList(&quitListHead);
   if(procTable[PID].nextPCB!=NULL){
     procTable[PID].nextPCB->prevPCB=procTable[PID].prevPCB;
   }
@@ -201,17 +204,6 @@ void removeFromList(int PID){
   procTable[PID].nextPCB=NULL;
   procTable[PID].prevPCB=NULL;
 }
-
-void addToProcQue(int PID, Semaphore sem){
-  PCB* pos=sem.queue;
-  while(pos->nextPCB!=NULL){
-    pos=pos->nextPCB;
-  }
-  pos->nextPCB=&procTable[PID];
-  procTable[PID].nextPCB=NULL;
-  procTable[PID].prevPCB=pos;
-}
-
 
 void dispatcher()
 {
@@ -301,7 +293,7 @@ void startup()
   USLOSS_IntVec[USLOSS_MMU_INT] = NULL;
   USLOSS_IntVec[USLOSS_SYSCALL_INT] = &tempSyscallHandler;
   /* Initialize the semaphores here */
-
+  P1_SemCreate(1);
   /* startup a sentinel process */
   /* HINT: you don't want any forked processes to run until startup is finished.
    * You'll need to do something in your dispatcher to prevent that from happening.
@@ -405,8 +397,6 @@ P1_Semaphore P1_SemCreate(unsigned int value){
   P1_Semaphore semPointer; 
   Semaphore* semi= malloc(sizeof(Semaphore));
   semi->value = value;
-  semi->nextPCB=NULL;
-  semi->prevPCB=NULL;
   semPointer = &semi;
 
   // put the semaphore in the table
@@ -422,7 +412,7 @@ int P1_SemFree(P1_Semaphore sem){
   Check_Your_Privilege();
   //if sem is invalid return -1, sem is invalid if it is not created using SemCreate method
   Semaphore* semP=(Semaphore*)sem;
-  if(semP->value < 0 || semP->value > P1_MAXSEM-1){
+  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
     USLOSS_Console("Semaphore is invalid\n");
     USLOSS_Halt(1);
     return -1;
@@ -432,6 +422,7 @@ int P1_SemFree(P1_Semaphore sem){
 }
 
 int P1_P(P1_Semaphore sem){
+  USLOSS_Console("P1_P running\n");
   Check_Your_Privilege();
   Semaphore* semP=(Semaphore*)sem;
 
@@ -451,34 +442,25 @@ int P1_P(P1_Semaphore sem){
       semP->value--;
       break;
     }
-    // move process from ready queueu to semaphore->procQue
-    removeFromList(currPid);
-    addToProcQue(currPid,*semP);
-    //interrupt enable
-
-    dispatcher();
   }
   //interrupt enable
   return 0;
 }
 
 int P1_V(P1_Semaphore sem){
+  USLOSS_Console("P1_V running\n");
   Check_Your_Privilege();
   // interrupt disable HERE!
   Semaphore* semP=(Semaphore*)sem;
   
   // check if the semaphore is valid
-  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+  if(semP->value < 0 || semP->value > P1_MAXSEM-1){
     USLOSS_Console("Semaphore is invalid\n");
     return - 1;
   }
   semP->value++;
   if(semP->queue != NULL){
-    //Move first frocess from procQueue to ready queue
-    if(procTable[semP->queue->PID].state != 3){
-      removeFromList(semP->queue->PID);
-      addToReadyList(semP->queue->PID);
-    }
+    //addToReady
     dispatcher();
   }
   // interrupt enable HERE!
@@ -515,7 +497,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     if(stacksize<USLOSS_MIN_STACK){//is stacksize valid
       return -2;
     }
-
+    P1_Semaphore sema=&semTable[0];
     //find PID
     int newPid = 0;
     while(procTable[newPid].priority!=-1){
@@ -525,6 +507,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
       }
     }
 
+    P1_P(sema);
     /* stack = allocated stack here */
     // void* newStack=malloc(stacksize*sizeof(char));
     procTable[newPid].stack=malloc(stacksize*sizeof(char));
@@ -562,6 +545,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     USLOSS_ContextInit(&(procTable[newPid].context), USLOSS_PsrGet(), procTable[newPid].stack, 
         stacksize, launch);
 
+    P1_V(sema);
     /*Run dispatcher if forking higher priority process*/
     if(currPid != -1&&priority<procTable[currPid].priority){
       dispatcher();
