@@ -18,7 +18,6 @@
 #define DEFAULT -99
 #define FIRST_RUN -98
 /* -------------------------- Globals ------------------------------------- */
-
 typedef struct PCB {
     USLOSS_Context      context;
     int                 (*startFunc)(void *);   /* Starting function */
@@ -43,6 +42,7 @@ typedef struct
 {
   int value;
   struct PCB *queue;
+  int pidsem;
 }Semaphore;
 
 int dispatcherTimeTracker=-1;
@@ -138,6 +138,19 @@ void removeFromList(int PID){
   procTable[PID].nextPCB=NULL;
   procTable[PID].prevPCB=NULL;
 }
+
+// void addToProcQue(int PID){
+//   PCB* pos=&blockedHead;
+//   while(pos->nextPCB&&pos->nextPCB->priority<procTable[PID].priority){
+//     // USLOSS_Console("Looping on %s\n",pos->nextPCB->name);
+//     pos=pos->nextPCB;
+//   }
+//   procTable[PID].nextPCB=NULL;
+//   pos->nextPCB=&(procTable[PID]);
+// }
+// void removeToProcQue(int PID){
+
+// }
 
 void dispatcher()
 {
@@ -375,6 +388,11 @@ int P1_P(P1_Semaphore sem){
       semP->value--;
       break;
     }
+    // move process from ready queueu to semaphore->procQue
+
+    //interrupt enable
+
+    dispatcher();
   }
   //interrupt enable
   return 0;
@@ -392,7 +410,8 @@ int P1_V(P1_Semaphore sem){
   }
   semP->value++;
   if(semP->queue != NULL){
-    //addToReady
+    //Move first frocess from procQueue to ready queue
+
     dispatcher();
   }
   // interrupt enable HERE!
