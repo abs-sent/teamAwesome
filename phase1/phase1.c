@@ -42,7 +42,7 @@ typedef struct
 {
   int value;
   struct PCB *queue;
-  int pidsem;
+  
 }Semaphore;
 
 int dispatcherTimeTracker=-1;
@@ -56,6 +56,7 @@ Semaphore semTable[P1_MAXSEM];
 PCB readyHead;
 PCB blockedHead;
 PCB quitListHead;
+
 /* current process ID */
 int currPid = -1;
 
@@ -193,10 +194,6 @@ void addToQuitList(int PID){
 
 
 void removeFromList(int PID){
-  USLOSS_Console("ReadyList:");
-  printList(&readyHead);
-  USLOSS_Console("QuitList:");
-  printList(&quitListHead);
   if(procTable[PID].nextPCB!=NULL){
     procTable[PID].nextPCB->prevPCB=procTable[PID].prevPCB;
   }
@@ -205,18 +202,16 @@ void removeFromList(int PID){
   procTable[PID].prevPCB=NULL;
 }
 
-// void addToProcQue(int PID){
-//   PCB* pos=&blockedHead;
-//   while(pos->nextPCB&&pos->nextPCB->priority<procTable[PID].priority){
-//     // USLOSS_Console("Looping on %s\n",pos->nextPCB->name);
-//     pos=pos->nextPCB;
-//   }
-//   procTable[PID].nextPCB=NULL;
-//   pos->nextPCB=&(procTable[PID]);
-// }
-// void removeToProcQue(int PID){
+void addToProcQue(int PID, Semaphore sem){
+  PCB* pos=sem.queue;
+  while(pos->nextPCB!=NULL){
+    pos=pos->nextPCB;
+  }
+  pos->nextPCB=&procTable[PID];
+  procTable[PID].nextPCB=NULL;
+  procTable[PID].prevPCB=pos;
+}
 
-// }
 
 void dispatcher()
 {
@@ -397,7 +392,7 @@ int P1_ReadTime(void){
 }
 
 /*Checks Whether or not thecurrent process is in Kernel Mode*/
-void Check_Your_P rivilege(){
+void Check_Your_Privilege(){
   if((USLOSS_PsrGet() & USLOSS_PSR_CURRENT_MODE)==0){
     USLOSS_Console("Error: Access Denied to User Mode");
     USLOSS_Halt(1);
@@ -410,6 +405,8 @@ P1_Semaphore P1_SemCreate(unsigned int value){
   P1_Semaphore semPointer; 
   Semaphore* semi= malloc(sizeof(Semaphore));
   semi->value = value;
+  semi->nextPCB=NULL;
+  semi->prevPCB=NULL;
   semPointer = &semi;
 
   // put the semaphore in the table
@@ -425,7 +422,7 @@ int P1_SemFree(P1_Semaphore sem){
   Check_Your_Privilege();
   //if sem is invalid return -1, sem is invalid if it is not created using SemCreate method
   Semaphore* semP=(Semaphore*)sem;
-  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+  if(semP->value < 0 || semP->value > P1_MAXSEM-1){
     USLOSS_Console("Semaphore is invalid\n");
     USLOSS_Halt(1);
     return -1;
@@ -443,7 +440,7 @@ int P1_P(P1_Semaphore sem){
     return -2;
   }
   // check if the semaphore is valid
-  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+  if(semP->value < 0 || semP->value > P1_MAXSEM-1){
     USLOSS_Console("Semaphore is invalid\n");
     return - 1;
   }
@@ -455,7 +452,8 @@ int P1_P(P1_Semaphore sem){
       break;
     }
     // move process from ready queueu to semaphore->procQue
-
+    removeFromList(currPid);
+    addToProcQue(currPid,*semP);
     //interrupt enable
 
     dispatcher();
@@ -477,7 +475,10 @@ int P1_V(P1_Semaphore sem){
   semP->value++;
   if(semP->queue != NULL){
     //Move first frocess from procQueue to ready queue
-
+    if(procTable[semP->queue->PID].state != 3){
+      removeFromList(semP->queue->PID);
+      addToReadyList(semP->queue->PID);
+    }
     dispatcher();
   }
   // interrupt enable HERE!
