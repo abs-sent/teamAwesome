@@ -51,12 +51,11 @@ PCB procTable[P1_MAXPROC];
 
 /* the semaphore table */
 Semaphore semTable[P1_MAXSEM];
-/*Interrupt Vector*/
-USLOSS (USLOSS_IntVec);
+
 
 PCB readyHead;
 PCB blockedHead;
-
+PCB quitListHead;
 /* current process ID */
 int currPid = -1;
 
@@ -69,6 +68,7 @@ static void launch(void);
 static void removeProc(int PID);
 static void Check_Your_Privilege();
 static void free_Procs();
+
 //static int P1_ReadTime(void);
 
 P1_Semaphore P1_SemCreate(unsigned int value);
@@ -85,20 +85,71 @@ int P1_V(P1_Semaphore sem);
    Returns - nothing
    Side Effects - runs a process
    ----------------------------------------------------------------------- */
+int P1_WaitDevice(int type, int unit, int *status){
+  if(procTable[currPid].state==2){//Checks if killed
+    return -3;
+  }
+  /*TO DO: Check If valid Unit*/
+  if(unit<0||unit>3){
+    return -1;
+  }
+  switch(type){
+    case 0:
+      // P1_P(type_semaphore);
+      break;
+    case 1:
+      // P1_P(type_semaphore);
+      break;
+    case 2:
+      // P1_P(type_semaphore);
+      break;
+    case 3:
+      // P1_P(type_semaphore);
+      break;
+    default:
+      return -2;//Invalid Type
+  }
+  
+  return 0;
+}
+
+void tempSyscallHandler(){
+  USLOSS_Console("System call %d not implemented",currPid);
+  P1_Quit(1);
+}
+
+void freeProc(int PID){
+  free(procTable[PID].stack); 
+  free(procTable[PID].name);
+  procTable[PID].notFreed = 0; 
+}
 
 void free_Procs(){
   int i;
   for( i= 0; i <P1_MAXPROC; i++){
     if(procTable[i].state == 3 && procTable[i].notFreed) {
-      free(procTable[i].stack); // free
-      //USLOSS_Console("Freed %s\n",procTable[i].name);
-      free(procTable[i].name);
-      procTable[i].notFreed = 0;
+      freeProc(i);
       if(procTable[i].isOrphan){
-        procTable[i].priority=-1;
+        removeProc(i);
       }
+      //USLOSS_Console("Freed %s\n",procTable[i].name);
     }
   }
+}
+/*Prints out Linked List*/
+void printList(PCB* listHead){
+  if(listHead->nextPCB==NULL){
+    USLOSS_Console("empty list\n");
+    listHead=listHead->nextPCB;
+    return;
+  }
+  int i=0;
+  while(listHead->nextPCB!=NULL){
+    listHead=listHead->nextPCB;
+    i++;
+    USLOSS_Console("PCB %d->",listHead->PID);
+  }
+  USLOSS_Console("\nList Size: %d\n",i);
 }
 
 void addToReadyList(int PID){
@@ -106,15 +157,15 @@ void addToReadyList(int PID){
     while(pos->nextPCB!=NULL&&pos->nextPCB->priority<=procTable[PID].priority){
       pos=pos->nextPCB;
     }
-    if(pos->nextPCB==NULL){
-      pos->nextPCB=&(procTable[PID]);
-      procTable[PID].prevPCB=pos->nextPCB;
+    if(pos->nextPCB==NULL){//end of list
+      pos->nextPCB=&procTable[PID];
+      procTable[PID].prevPCB=pos;
       procTable[PID].nextPCB=NULL;
-    }else{
+    }else{//middle of list
       procTable[PID].prevPCB=pos;
       procTable[PID].nextPCB=pos->nextPCB;
-      pos->nextPCB->prevPCB=&(procTable[PID]);
-      pos->nextPCB=&(procTable[PID]);
+      pos->nextPCB->prevPCB=&procTable[PID];
+      pos->nextPCB=&procTable[PID];
     }
 }
 
@@ -125,12 +176,27 @@ void addToBlockedList(int PID){
     // USLOSS_Console("Looping on %s\n",pos->nextPCB->name);
     pos=pos->nextPCB;
   }
+  pos->nextPCB=&procTable[PID];
   procTable[PID].nextPCB=NULL;
-  pos->nextPCB=&(procTable[PID]);
-
+  procTable[PID].prevPCB=pos;
 }
 
+void addToQuitList(int PID){
+  PCB* pos=&quitListHead;
+  while(pos->nextPCB!=NULL){
+    pos=pos->nextPCB;
+  }
+  pos->nextPCB=&procTable[PID];
+  procTable[PID].nextPCB=NULL;
+  procTable[PID].prevPCB=pos;
+}
+
+
 void removeFromList(int PID){
+  USLOSS_Console("ReadyList:");
+  printList(&readyHead);
+  USLOSS_Console("QuitList:");
+  printList(&quitListHead);
   if(procTable[PID].nextPCB!=NULL){
     procTable[PID].nextPCB->prevPCB=procTable[PID].prevPCB;
   }
@@ -180,7 +246,6 @@ void dispatcher()
     readyListPos=readyListPos->nextPCB;
   }
 
-  procTable[currPid].lastStartedTime=USLOSS_Clock();
 
   readyListPos->nextPCB->state=0;//set state to running
   /*Set Proc state to ready unless it has quit or been killed*/
@@ -188,6 +253,7 @@ void dispatcher()
     procTable[oldpid].state=1;
   }
   currPid = readyListPos->nextPCB->PID;
+  procTable[currPid].lastStartedTime=USLOSS_Clock();
   /*Adds currpid to end of its priority section in the Rdy list*/
   removeFromList(currPid);
   addToReadyList(currPid);
@@ -219,7 +285,7 @@ void startup()
   }
 
   /*initialize the semaphore table*/
-  for(int i=0; i< P1_MAXSEM; i++){
+  for(i=0; i< P1_MAXSEM; i++){
     Semaphore dummy;
     semTable[i] = dummy;
     semTable[i].value = -1;
@@ -230,8 +296,15 @@ void startup()
   readyHead.nextPCB=NULL;
   blockedHead.prevPCB=NULL;
   blockedHead.nextPCB=NULL;
+  quitListHead.nextPCB=NULL;
+  quitListHead.prevPCB=NULL;
   /* Initialize the interrupt vector here */
-  USLOSS_IntVec[USLOSS_CLOCK_INT] = clock_handler;
+  USLOSS_IntVec[USLOSS_CLOCK_INT] = NULL;
+  USLOSS_IntVec[USLOSS_ALARM_INT] = NULL;
+  USLOSS_IntVec[USLOSS_DISK_INT] = NULL;
+  USLOSS_IntVec[USLOSS_TERM_INT] = NULL;
+  USLOSS_IntVec[USLOSS_MMU_INT] = NULL;
+  USLOSS_IntVec[USLOSS_SYSCALL_INT] = &tempSyscallHandler;
   /* Initialize the semaphores here */
 
   /* startup a sentinel process */
@@ -271,19 +344,6 @@ int P1_GetPID(){
   return currPid;
 }
 
-int P1_Join(int *status){
-   Check_Your_Privilege();
-   if(procTable[currPid].numChildren == 0){
-    return -1;
-   }
-  int i;
-   // get the PID of the child that quit
-   for( i= 0; i < P1_MAXPROC; i++){
-
-   }
-    return 0;
-}
-
 int P1_GetState(int PID){
   Check_Your_Privilege();
   if(PID<0||PID>P1_MAXPROC-1){
@@ -298,6 +358,7 @@ int P1_GetState(int PID){
 
 void P1_DumpProcesses(){// Do CPU Time Part
   Check_Your_Privilege();
+  USLOSS_Console("Dumping Process\n");
   int i;
     for(i=0;i<P1_MAXPROC;i++){
         if(procTable[i].priority==-1){
@@ -319,10 +380,15 @@ void P1_DumpProcesses(){// Do CPU Time Part
             statePhrase="Waiting";
             break;
         }
-        
+        int cpu;
+        if(i==currPid){
+          cpu=P1_ReadTime();
+        }else{
+          cpu=procTable[i].cpuTime;
+        }
         USLOSS_Console("Name:%s\t PID:%-5d\tParent:%d\tPriority:%d\tState:%s\tKids:%d\tCPUTime:%d\n",
                 procTable[i].name,i,procTable[i].parent,procTable[i].priority,
-                statePhrase,procTable[i].numChildren,procTable[i].cpuTime); 
+                statePhrase,procTable[i].numChildren,cpu); 
     }
 }
 
@@ -331,7 +397,7 @@ int P1_ReadTime(void){
 }
 
 /*Checks Whether or not thecurrent process is in Kernel Mode*/
-void Check_Your_Privilege(){
+void Check_Your_P rivilege(){
   if((USLOSS_PsrGet() & USLOSS_PSR_CURRENT_MODE)==0){
     USLOSS_Console("Error: Access Denied to User Mode");
     USLOSS_Halt(1);
@@ -521,6 +587,26 @@ void launch(void){
   P1_Quit(rc);
 } /* End of launch */
 
+/*Join: Causes current Process to wait for first child to quit*/
+int P1_Join(int *status){
+  Check_Your_Privilege();
+  if(procTable[currPid].numChildren == 0){
+   return -1;
+  }
+  int i;
+  /*get the PID of the child that quit*/ 
+  // P1_P(Join_Semaphore);
+  for( i= 0; i < P1_MAXPROC; i++){
+    if(procTable[i].parent==currPid&&procTable[i].state==3){
+      *status=procTable[i].status;
+      procTable[currPid].numChildren--;
+      removeProc(i);
+      return i;
+    }
+  }
+  return -2;
+}
+
 /* ------------------------------------------------------------------------
    Name - P1_Quit
    Purpose - Causes the process to quit and wait for its parent to call P1_Join.
@@ -534,7 +620,7 @@ void P1_Quit(int status) {
   
   int i;
   for (i = 0; i < P1_MAXPROC; i++) {
-      if(procTable[i].PID==currPid){
+      if(procTable[i].parent==currPid){
           procTable[i].isOrphan = 1; // orphanize the children
       }
   }
@@ -549,9 +635,10 @@ void P1_Quit(int status) {
   
   /*Remove from Ready List*/
   removeFromList(currPid);
-
   /*Add to blocked List*/
-  addToBlockedList(currPid);
+  addToQuitList(currPid);
+  // printList(&quitListHead);
+  // addToBlockedList(currPid);
 
 
   
@@ -559,7 +646,7 @@ void P1_Quit(int status) {
   if(procTable[currPid].isOrphan){//||procTable[currPid].parent==-1){
       removeProc(currPid);
   }
-  
+
   //USLOSS_Console("In quit PID -- after:  %d\n", currPid);
   
   // USLOSS_Console("Number of processes: %d\n", numProcs);
@@ -568,11 +655,17 @@ void P1_Quit(int status) {
 /*End of Quit*/
 
 /*Removes a pcb from procTable*/
-void removeProc(int PID){   
+void removeProc(int PID){
+    USLOSS_Console("Removing PCB %d\n",PID); 
+    if(procTable[PID].priority == -1){
+      return;
+    }  
     procTable[PID].priority = -1;
+    /*Remove from quit list*/
+    removeFromList(PID);
 }
 
-int P1_Kill(int PID,int status){//Remove 2nd Parameter
+int P1_Kill(int PID){//Remove 2nd Parameter
   Check_Your_Privilege();
   if(PID==currPid){
     return -2;
