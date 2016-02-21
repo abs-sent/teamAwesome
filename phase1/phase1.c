@@ -191,9 +191,21 @@ void addToQuitList(int PID){
   procTable[PID].prevPCB=pos;
 }
 
+void addToQue(int PID,PCB* list){
+  PCB* pos=list;
+  while(pos->nextPCB!=NULL){
+    pos=pos->nextPCB;
+  }
+  pos->nextPCB=&procTable[PID];
+  procTable[PID].nextPCB=NULL;
+  procTable[PID].prevPCB=pos;
+  // USLOSS_Console("Queue after addtoQue: ");
+  // printList(list);
+}
 
 void removeFromList(int PID){
-  // USLOSS_Console("ReadyList:");
+  // USLOSS_Console("RFL PCB %d\n",PID);
+  // USLOSS_Console("ReadyList B4:");
   // printList(&readyHead);
   // USLOSS_Console("QuitList:");
   // printList(&quitListHead);
@@ -203,10 +215,14 @@ void removeFromList(int PID){
   procTable[PID].prevPCB->nextPCB=procTable[PID].nextPCB;
   procTable[PID].nextPCB=NULL;
   procTable[PID].prevPCB=NULL;
+  // USLOSS_Console("ReadyList After:");
+  // printList(&readyHead);
 }
 
 void dispatcher()
 {
+  // USLOSS_Console("dispatcher");
+  // printList(&readyHead);
   Check_Your_Privilege();
   // USLOSS_Console("dispatcher Called\n");
   /*Adjust Runttime for current process*/
@@ -224,14 +240,14 @@ void dispatcher()
   // USLOSS_Console("In dispatcher PID -- before:  %d\n", currPid);
   int oldpid = currPid;
   PCB* readyListPos=&readyHead;
-  while(readyListPos->nextPCB){//List is in order of priority
-    /*Breaks and runs this process*/
-    if(readyListPos->nextPCB->state==1||readyListPos->nextPCB->state==2){
-        break;
-    }
-    // USLOSS_Console("Moving Foward in dispatcher\n");
-    readyListPos=readyListPos->nextPCB;
-  }
+  // while(readyListPos->nextPCB){//List is in order of priority
+  //   /*Breaks and runs this process*/
+  //   if(readyListPos->nextPCB->state==1||readyListPos->nextPCB->state==2){
+  //       break;
+  //   }
+  //   // USLOSS_Console("Moving Foward in dispatcher\n");
+  //   readyListPos=readyListPos->nextPCB;
+  // }
 
 
   readyListPos->nextPCB->state=0;//set state to running
@@ -274,6 +290,8 @@ void startup()
   /*initialize the semaphore table*/
   for(i=0; i< P1_MAXSEM; i++){
     Semaphore dummy;
+    PCB listHead;
+    dummy.queue=&listHead;
     semTable[i] = dummy;
     semTable[i].value = -1;
   } 
@@ -293,7 +311,7 @@ void startup()
   USLOSS_IntVec[USLOSS_MMU_INT] = NULL;
   USLOSS_IntVec[USLOSS_SYSCALL_INT] = &tempSyscallHandler;
   /* Initialize the semaphores here */
-  P1_SemCreate(1);
+  
   /* startup a sentinel process */
   /* HINT: you don't want any forked processes to run until startup is finished.
    * You'll need to do something in your dispatcher to prevent that from happening.
@@ -395,16 +413,15 @@ void Check_Your_Privilege(){
 P1_Semaphore P1_SemCreate(unsigned int value){
 
   P1_Semaphore semPointer; 
-  Semaphore* semi= malloc(sizeof(Semaphore));
-  semi->value = value;
-  semPointer = &semi;
-
   // put the semaphore in the table
   int i = 0;
   while(semTable[i].value != -1 && i < P1_MAXSEM){
     i++;
   }
-  semTable[i] = *semi;
+  semTable[i].value = value;
+  semTable[i].queue->nextPCB=NULL;
+  semTable[i].queue->prevPCB=NULL;
+  semPointer = &semTable[i];
   return semPointer;
 }
 
@@ -422,7 +439,7 @@ int P1_SemFree(P1_Semaphore sem){
 }
 
 int P1_P(P1_Semaphore sem){
-  USLOSS_Console("P1_P running\n");
+  // USLOSS_Console("P1_P running\n");
   Check_Your_Privilege();
   Semaphore* semP=(Semaphore*)sem;
 
@@ -437,10 +454,16 @@ int P1_P(P1_Semaphore sem){
   }
   while(1){
     // interrupt disable HERE;
-
     if(semP->value > 0){
       semP->value--;
       break;
+    }
+    if(currPid!=-1){
+      procTable[currPid].state=4;
+      removeFromList(currPid);
+      addToQue(currPid,semP->queue);
+      // USLOSS_Console("P() queue:");
+      // printList(semP->queue);
     }
   }
   //interrupt enable
@@ -448,7 +471,7 @@ int P1_P(P1_Semaphore sem){
 }
 
 int P1_V(P1_Semaphore sem){
-  USLOSS_Console("P1_V running\n");
+  // USLOSS_Console("P1_V for PCB %d running\n",currPid);
   Check_Your_Privilege();
   // interrupt disable HERE!
   Semaphore* semP=(Semaphore*)sem;
@@ -459,10 +482,17 @@ int P1_V(P1_Semaphore sem){
     return - 1;
   }
   semP->value++;
-  if(semP->queue != NULL){
+
+  if(currPid>=0&&semP->queue->nextPCB != NULL){
     //addToReady
+    int PID=semP->queue->nextPCB->PID;
+    // USLOSS_Console("PCB>> %s\n",procTable[currPid].name);
+    removeFromList(PID);
+    addToReadyList(PID);
+    procTable[PID].state=1;
     dispatcher();
   }
+  // USLOSS_Console("P1_V ending\n");
   // interrupt enable HERE!
   return 0;
 }
@@ -497,7 +527,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     if(stacksize<USLOSS_MIN_STACK){//is stacksize valid
       return -2;
     }
-    P1_Semaphore sema=&semTable[0];
+    
     //find PID
     int newPid = 0;
     while(procTable[newPid].priority!=-1){
@@ -507,9 +537,10 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
       }
     }
 
+    P1_Semaphore sema=P1_SemCreate(1);
     P1_P(sema);
+
     /* stack = allocated stack here */
-    // void* newStack=malloc(stacksize*sizeof(char));
     procTable[newPid].stack=malloc(stacksize*sizeof(char));
     procTable[newPid].notFreed=1;
 
@@ -624,8 +655,6 @@ void P1_Quit(int status) {
   addToQuitList(currPid);
   // printList(&quitListHead);
   // addToBlockedList(currPid);
-
-
   
   /*remove if orphan*/
   if(procTable[currPid].isOrphan){//||procTable[currPid].parent==-1){
@@ -633,15 +662,13 @@ void P1_Quit(int status) {
   }
 
   //USLOSS_Console("In quit PID -- after:  %d\n", currPid);
-  
-  // USLOSS_Console("Number of processes: %d\n", numProcs);
   dispatcher();
 }
 /*End of Quit*/
 
 /*Removes a pcb from procTable*/
 void removeProc(int PID){
-    USLOSS_Console("Removing PCB %d\n",PID); 
+    // USLOSS_Console("Removing PCB %d\n",PID); 
     if(procTable[PID].priority == -1){
       return;
     }  
@@ -674,7 +701,8 @@ int P1_Kill(int PID){//Remove 2nd Parameter
    ----------------------------------------------------------------------- */
 int sentinel (void *notused)
 {
- // USLOSS_Console("in sentinel\n");
+ // USLOSS_Console("in sentinel, NumProcs=%d\n",numProcs);
+ // printList(semTable[0].queue);
   /*No Interupts within Part 1 so commented out*/
   while (numProcs > 1)
   {
