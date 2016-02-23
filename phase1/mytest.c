@@ -1,51 +1,42 @@
 #include "phase1.h"
 #include <stdio.h>
 #include <stdlib.h>
+P1_Semaphore a;
+int Grandchild(void *arg) {
+    USLOSS_Console("Grandchild\n");
 
-// This tests first forks P3_Startup which then attempts to fork a process which has a higher priority then it.
-// P4_Startup should run before P3_Startup since it has higher priority.
-/*
- * Output:
- * P2_Startup
- * P2_Finished
- * P3_Startup
- * P4_Startup
- * P4_Finished
- * P3_Finished
-*/ 
+    
+    //P1_Fork("Grandchild", Child, NULL, USLOSS_MIN_STACK, 1);
+
+    P1_P(a);
+    USLOSS_Console("Grandchild finished\n");
+    return 0;
+}
+
+int Child(void *arg) {
+    USLOSS_Console("Child\n");
+    a=P1_SemCreate(0);
+    P1_V(a);
+    P1_Fork("Grandchild", Grandchild, NULL, USLOSS_MIN_STACK, 1);
 
 
-int P3_Startup(void *notused);
-int P4_Startup(void *notused);
+    USLOSS_Console("Child finished\n");
+    return 0;
+}
 
 int P2_Startup(void *notused) 
 {
     USLOSS_Console("P2_Startup\n");
-    int result = P1_Fork("P3_Startup", P3_Startup, NULL, 4 *  USLOSS_MIN_STACK, 4);
-    USLOSS_Console("P2_Finished\n");
-    if (result != 2)
-       USLOSS_Console("Fail\n");
+    P1_Fork("Child", Child, NULL, USLOSS_MIN_STACK, 3);
+    USLOSS_Console("P2_Startup finished\n");
     return 0;
 }
 
-int P3_Startup(void *notused) 
-{
-    USLOSS_Console("P3_Startup\n");
-    int result = P1_Fork("P4_Startup", P4_Startup, NULL, 4 *  USLOSS_MIN_STACK, 3);
-    USLOSS_Console("P3_Finished\n");
-    if (result != 3)
-       USLOSS_Console("Fail\n");
-    return 0; 
-}
 
-int P4_Startup(void *notused) {
-    USLOSS_Console("P4_Startup\n");
-    USLOSS_Console("P4_Finished\n");
-    return 0;
-}
+
 
 void setup(void) {
-   // do nothing
+    // Do nothing.
 }
 
 void cleanup(void) {

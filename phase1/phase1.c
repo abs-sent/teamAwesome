@@ -42,6 +42,7 @@ typedef struct PCB {
 typedef struct 
 {
   int value;
+  int valid;
   struct PCB *queue;
 }Semaphore;
 
@@ -256,8 +257,8 @@ void dispatcher()
 {
   Check_Your_Privilege();
   int_disable();
-  USLOSS_Console("dispatcher Called\n");
-  printList(&readyHead);
+  //USLOSS_Console("dispatcher Called\n");
+  //printList(&readyHead);
   /*Adjust Runttime for current process*/
   int timeRun;
   if (procTable[currPid].lastStartedTime==FIRST_RUN) {
@@ -297,8 +298,11 @@ void dispatcher()
   addToReadyList(currPid);
   /*Reenable Interrupts*/
   int_enable();
- // USLOSS_Console("In dispatcher switching to PID:  %d\n", currPid); 
-  USLOSS_ContextSwitch(&(procTable[oldpid]).context, &(readyListPos->nextPCB->context));
+ // USLOSS_Console("In dispatcher switching to PID:  %d\n", currPid);
+ // USLOSS_Console("In dispatcher switching to PID:  %d\n", readyListPos->nextPCB->PID);
+ //if(readyListPos->nextPCB->state != -3){
+    USLOSS_ContextSwitch(&(procTable[oldpid]).context, &(readyListPos->nextPCB->context));
+  //}
 
 }
 
@@ -342,11 +346,12 @@ void startup()
 
 /*initialize the semaphore table*/
   for(i=0; i< P1_MAXSEM; i++){
-    Semaphore dummy;
+    Semaphore *dummy = malloc(sizeof(Semaphore));
     PCB listHead;
-    dummy.queue=&listHead;
-    semTable[i] = dummy;
+    dummy->queue=&listHead;
+    semTable[i] = *dummy;
     semTable[i].value = -1;
+    semTable[i].valid = 0;
   }
 
   /* semaphores for the processes */
@@ -475,7 +480,7 @@ void int_enable(){
 P1_Semaphore P1_SemCreate(unsigned int value){
   int_disable();
   P1_Semaphore semPointer; 
-  // Semaphore semi; //= malloc(sizeof(Semaphore));
+  //Semaphore *semi = malloc(sizeof(Semaphore));
 
   // put the semaphore in the table
   int i = 0;
@@ -483,9 +488,11 @@ P1_Semaphore P1_SemCreate(unsigned int value){
     i++;
   }
   semTable[i].value = value;
+  semTable[i].valid = 1;
   semTable[i].queue->nextPCB = NULL;
   semTable[i].queue->prevPCB = NULL;
   semPointer = &semTable[i];
+
   int_enable();
   return semPointer;
 }
@@ -494,7 +501,7 @@ int P1_SemFree(P1_Semaphore sem){
   Check_Your_Privilege();
   //if sem is invalid return -1, sem is invalid if it is not created using SemCreate method
   Semaphore* semP=(Semaphore*)sem;
-  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+  if(semP->value < 0 || semP->valid==0){
     USLOSS_Console("Semaphore is invalid\n");
     USLOSS_Halt(1);
     return -1;
@@ -505,7 +512,7 @@ int P1_SemFree(P1_Semaphore sem){
 }
 
 int P1_P(P1_Semaphore sem){
-  USLOSS_Console("In P1_P\n");
+  //USLOSS_Console("In P1_P\n");
   Check_Your_Privilege();
   Semaphore* semP=(Semaphore*)sem;
 
@@ -514,7 +521,7 @@ int P1_P(P1_Semaphore sem){
     return -2;
   }
   // check if the semaphore is valid
-  if(semP->value < 0 || semP->value > P1_MAXSEM-1){
+  if(semP->value < 0 || semP->valid==0){
     USLOSS_Console("Semaphore is invalid\n");
     return - 1;
   }
@@ -542,34 +549,33 @@ int P1_P(P1_Semaphore sem){
 }
 
 int P1_V(P1_Semaphore sem){
-  USLOSS_Console("In P1_V for %d\n",currPid);
+  //USLOSS_Console("In P1_V for %d\n",currPid);
   Check_Your_Privilege();
   int_disable();
   // interrupt disable HERE!
   Semaphore* semP=(Semaphore*)sem;
   
   // check if the semaphore is valid
-  if(semP->value < 0 && semP->value > P1_MAXSEM-1){
+  if(semP->value < 0 || semP->valid==0){
     USLOSS_Console("Semaphore is invalid\n");
     return - 1;
   }
   semP->value++;
   if(currPid!=-1&&semP->queue->nextPCB != NULL){
     //Move first frocess from procQueue to ready queue
-    // if(procTable[semP->queue->PID].state != 3){
+     if(procTable[semP->queue->PID].state == 4){
       // int PID=semP->queue->PID;
       procTable[currPid].state = 1; // ready status
      
       //removeToProcQue(currPid,*semP);
-      removeFromList(currPid);
-      addToReadyList(currPid);
+      removeFromList(semP->queue->nextPCB->PID);
 
+      addToReadyList(currPid);
       dispatcher();
 
-    // }
+    }
   }
   int_enable();
-  // interrupt enable HERE!
   return 0;
 }
 
@@ -592,7 +598,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
 {
     /*Check current Mode. If not Kernel Mode return error*/
     Check_Your_Privilege();
-    USLOSS_Console("Proc %s passed Privilege Check\n",name);
+    //USLOSS_Console("Proc %s passed Privilege Check\n",name);
     //free the available spots
     free_Procs();
 
@@ -643,7 +649,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     
     /*PCB Fields are set*/
 
-    USLOSS_Console("proc %s forked to PID %d\n",name,newPid);
+    //USLOSS_Console("proc %s forked to PID %d\n",name,newPid);
     /*add to ready list*/
     addToReadyList(newPid);    
 
@@ -698,6 +704,7 @@ int P1_Join(int *status){
     if(procTable[i].parent==currPid&&procTable[i].state==3){
       *status=procTable[i].status;
       procTable[currPid].numChildren--;
+      USLOSS_Console("Join\n");
       removeProc(i);
       return i;
     }
@@ -723,7 +730,7 @@ void P1_Quit(int status) {
       }
   }
 
- USLOSS_Console("Process: %s Quitting pid=%d\n",procTable[currPid].name,currPid);
+ //USLOSS_Console("Process: %s Quitting pid=%d\n",procTable[currPid].name,currPid);
   
   procTable[currPid].state = 3;
   procTable[currPid].status = status;
@@ -744,7 +751,7 @@ void P1_Quit(int status) {
   if(procTable[currPid].isOrphan){//||procTable[currPid].parent==-1){
       removeProc(currPid);
   }else{
-    P1_Semaphore semi = &semTable[procTable[currPid].parent-1];
+    P1_Semaphore semi = P1_SemCreate(1);//&semTable[procTable[currPid].parent-1];
     P1_V(semi);
   }
 

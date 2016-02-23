@@ -21,7 +21,7 @@ int P2_Startup(void *notused)
 {
     int pid1 = P1_Fork("process",&runner,NULL,USLOSS_MIN_STACK,1);
     P1_Fork("process",&runner,NULL,USLOSS_MIN_STACK,1);
-    P1_Kill(pid1,1);
+    P1_Kill(pid1);
     P1_DumpProcesses();
     return 0;
 }

@@ -53,7 +53,7 @@ int P2_Startup(void *notused)
             USLOSS_Console("Pass - > Returned: %d, Not enough process space\n", result);
     }
    
-    P1_Kill(48, 1);
+    P1_Kill(48);
 
     if (P1_GetState(48) == 2) {
        USLOSS_Console("PASS: process 48 marked for death\n");
@@ -68,9 +68,9 @@ int P3_Startup(void *notused)
 }
 
 int P4_Startup(void *notused) {
-   	USLOSS_Console("current PID == %d\n", P1_GetPID());
+   //	USLOSS_Console("current PID == %d\n", P1_GetPID());
 	int result = P1_Fork("P5_Startup", P5_Startup, NULL, 4 *  USLOSS_MIN_STACK, 5);
-USLOSS_Console("=== Result from P4 forking %d\n", result);   
+//USLOSS_Console("=== Result from P4 forking %d\n", result);   
 if  (result == 1){
        USLOSS_Console("PASS in P4 result == 1\n");
 	
