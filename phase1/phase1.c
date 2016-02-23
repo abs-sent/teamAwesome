@@ -352,6 +352,7 @@ void startup()
     semTable[i] = *dummy;
     semTable[i].value = -1;
     semTable[i].valid = 0;
+    semTable[i].queue = malloc(sizeof(PCB));
   }
 
   /* semaphores for the processes */
