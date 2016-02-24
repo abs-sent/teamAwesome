@@ -14,6 +14,15 @@
 #include "usloss.h"
 #include "phase1.h"
 #include <string.h>
+/*Define Static Semaphores*/
+#define Fork_Sema 0
+#define Clock_Sema 50
+#define Alarm_Sema 51
+#define Term_Sema 52
+#define MMU_Sema 53
+#define Sys_Sema 54
+#define Disk_Sema 55
+
 
 #define DEFAULT -99
 #define FIRST_RUN -98
@@ -35,6 +44,7 @@ typedef struct PCB {
     char* name;
     void* stack;
     int notFreed;
+    int waitingOnDevice;
     struct PCB* nextPCB;
     struct PCB* prevPCB;    
 } PCB;
@@ -46,7 +56,7 @@ typedef struct
   struct PCB *queue;
 }Semaphore;
 
-int dispatcherTimeTracker=-1;
+int timeTracker=0;
 /* the process table */
 PCB procTable[P1_MAXPROC];
 
@@ -79,6 +89,7 @@ int P1_V(P1_Semaphore sem);
 void addToProcQue(int PID, Semaphore sem);
 void int_disable();
 void int_enable();
+void dispatcher();
 
 
 int P1_WaitDevice(int type, int unit, int *status){
@@ -89,18 +100,32 @@ int P1_WaitDevice(int type, int unit, int *status){
   if(unit<0||unit>3){
     return -1;
   }
+  Semaphore* sema;
   switch(type){
-    case 0:
-      //P1_P(type_semaphore);
+    case USLOSS_CLOCK_INT:
+      sema=&semTable[Clock_Sema];
+      P1_P(sema);
+      *status=-1;
       break;
-    case 1:
-      // P1_P(type_semaphore);
+    case USLOSS_ALARM_INT:
+      sema=&semTable[Alarm_Sema];
+      P1_P(sema);
+      *status=-1;
       break;
-    case 2:
-      // P1_P(type_semaphore);
+    case USLOSS_DISK_INT:
+      sema=&semTable[Disk_Sema];
+      P1_P(sema);
+      *status=-1;
       break;
-    case 3:
-      // P1_P(type_semaphore);
+    case USLOSS_TERM_INT:
+      sema=&semTable[Term_Sema];
+      P1_P(sema);
+      *status=-1;
+      break;
+    case USLOSS_MMU_INT:
+      sema=&semTable[MMU_Sema];
+      P1_P(sema);
+      *status=-1;
       break;
     default:
       return -2;//Invalid Type
@@ -110,14 +135,16 @@ int P1_WaitDevice(int type, int unit, int *status){
 }
 void clockHandler(){
   int lastTime = USLOSS_Clock();
-  while(1){
-    if(USLOSS_Clock()-lastTime >= 5*USLOSS_CLOCK_MS){
-      // clock semaphore
-      lastTime = USLOSS_Clock();
-      P1_Semaphore sema = &semTable[50]; // clock semaphore!!!!!!
-      P1_V(sema);
-    }
+  ++timeTracker;
+  if(USLOSS_Clock()-lastTime >= 5){
+    USLOSS_Console("Clock Fun at %d\n",USLOSS_Clock());
+    // clock semaphore
+    timeTracker = 0;
+    // clock semaphore!!!!!!
+    P1_V(&semTable[Clock_Sema]);
+    dispatcher();
   }
+  
 }
 
 void tempAlarmHandler(){
@@ -218,10 +245,6 @@ void addToQuitList(int PID){
 
 
 void removeFromList(int PID){
-  // USLOSS_Console("ReadyList:");
-  // printList(&readyHead);
-  // USLOSS_Console("QuitList:");
-  // printList(&quitListHead);
   if(procTable[PID].nextPCB!=NULL){
     procTable[PID].nextPCB->prevPCB=procTable[PID].prevPCB;  
   }
@@ -235,7 +258,6 @@ void addToProcQue(int PID, Semaphore sem){
   while(pos->nextPCB!=NULL){
     pos=pos->nextPCB;
   }
-  // USLOSS_Console("in addToProcQue: \n");
   
   pos->nextPCB=&procTable[PID];
   procTable[PID].nextPCB=NULL;
@@ -277,7 +299,7 @@ void dispatcher()
 // USLOSS_Console("dispatcher Check point 1\n");
   readyListPos->nextPCB->state=0;//set state to running
   /*Set Proc state to ready unless it has quit or been killed*/
-  if(procTable[oldpid].state!=3||procTable[oldpid].state==2){
+  if(procTable[oldpid].state==0){
     procTable[oldpid].state=1;
   }
   // USLOSS_Console("dispatcher Check point 2\n");
@@ -344,21 +366,16 @@ void startup()
     semTable[i].queue = malloc(sizeof(PCB));
   }
 
-
+  /*Fork Semaphore*/
+  P1_SemCreate(1);
   /* semaphores for the processes */
-  for(i=0; i < 50; i++){
+  for(i=1; i < 50; i++){
     P1_SemCreate(0);
   }
-  /* semaphores for the devices */
+  /* semaphores for the 6 devices */
   for(i=0; i < 6; i++){
     P1_SemCreate(0);
   }
-
-  // Semaphore for fork
-  // P1_SemCreate(1);
-
-
-
 
  
   /* startup a sentinel process */
@@ -504,7 +521,10 @@ int P1_SemFree(P1_Semaphore sem){
 int P1_P(P1_Semaphore sem){
   Check_Your_Privilege();
   Semaphore* semP=(Semaphore*)sem;
-
+  if(semP->valid>Clock_Sema&&semP->valid<MMU_Sema){
+    USLOSS_Console("In P1_P for %d,Sem Table Pos: %d\n",currPid,semP->valid);
+    procTable[currPid].waitingOnDevice=1;
+  }
   // check if the process is killed
   if(procTable[currPid].state == 2){
     return -2;
@@ -525,6 +545,7 @@ int P1_P(P1_Semaphore sem){
     }
     if(currPid!=-1){
       procTable[currPid].state = 4; // waiting status
+      // USLOSS_Console("CurrPid %d has state=%d\n",currPid,procTable[currPid].state);
       removeFromList(currPid);
       addToProcQue(currPid,*semP);
       dispatcher();
@@ -568,7 +589,7 @@ int P1_V(P1_Semaphore sem){
     //Move first frocess from procQueue to ready queue
     // if(procTable[PID].state == 4){
       procTable[PID].state = 1; // ready status
-      
+      procTable[currPid].waitingOnDevice=0;
       //removeToProcQue(currPid,*semP);
       removeFromList(PID);
       addToReadyList(PID);
@@ -622,8 +643,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
         return -1;
       }
     }
-    P1_Semaphore sema=P1_SemCreate(1);
-    // P1_P(sema);
+
     int_disable();
     /* stack = allocated stack here */
     // void* newStack=malloc(stacksize*sizeof(char));
@@ -647,6 +667,7 @@ int P1_Fork(char *name, int (*f)(void *), void *arg, int stacksize, int priority
     procTable[currPid].numChildren++;//increment parents numChildren
     procTable[newPid].numChildren=0;
     procTable[newPid].priority=priority;
+    procTable[newPid].waitingOnDevice=0;
     procTable[newPid].name=strdup(name);
     procTable[newPid].startFunc = f;
     procTable[newPid].startArg = arg;
@@ -799,26 +820,25 @@ int P1_Kill(int PID){//Remove 2nd Parameter
    ----------------------------------------------------------------------- */
 int sentinel (void *notused)
 {
-  USLOSS_Console("in sentinel\n");
   /*No Interupts within Part 1 so commented out*/
-  int deadlock=1;
+  // int deadlock=1;
   int i;
-  while (numProcs > 1)
-  {
-    USLOSS_Console("Yay sentinel loops\n");
-    for(i=0;i<P1_MAXPROC-1;i++){
-      if(procTable[i].state != 4){
-        deadlock = 0; 
-        break;
-      }else if(1/**/){
-        deadlock = 0;
+  printList(&readyHead);
+  while (numProcs > 1){
+    USLOSS_Console("in sentinel\n");
+    //Check for deadlock here 
+    for(i=1;i<P1_MAXPROC;i++){
+      if(procTable[i].state == 4&&procTable[i].waitingOnDevice==0){
+        USLOSS_Console("Error: Deadlock\n");
+        USLOSS_Halt(1);
+      // }else if(procTable[i].waitingOnDevice==1){
+      //   deadlock = 0;
       }
     }
-    if(deadlock){
-     USLOSS_Console("Error: Deadlock\n");
-     USLOSS_Halt(1);
-    }
-    //Check for deadlock here 
+    // if(deadlock){
+    //  USLOSS_Console("Error: Deadlock\n");
+    //  USLOSS_Halt(1);
+    // }
     USLOSS_WaitInt();
   }
   USLOSS_Halt(0);
