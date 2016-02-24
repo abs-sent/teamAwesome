@@ -103,41 +103,46 @@ int P1_WaitDevice(int type, int unit, int *status){
   Semaphore* sema;
   switch(type){
     case USLOSS_CLOCK_INT:
-      sema=&semTable[Clock_Sema];
-      P1_P(sema);
+      if(unit!=1){
+        return -1;
+      }
+      USLOSS_WaitInt();
       *status=-1;
       break;
     case USLOSS_ALARM_INT:
+      if(unit!=1){
+        return -1;
+      }
       sema=&semTable[Alarm_Sema];
       P1_P(sema);
       *status=-1;
       break;
     case USLOSS_DISK_INT:
+      if(unit<1||unit>2){
+        return -1;
+      }
       sema=&semTable[Disk_Sema];
       P1_P(sema);
       *status=-1;
       break;
     case USLOSS_TERM_INT:
+      if(unit<1||unit>4){
+        return -1;
+      }
       sema=&semTable[Term_Sema];
-      P1_P(sema);
-      *status=-1;
-      break;
-    case USLOSS_MMU_INT:
-      sema=&semTable[MMU_Sema];
       P1_P(sema);
       *status=-1;
       break;
     default:
       return -2;//Invalid Type
   }
-  
   return 0;
 }
 void clockHandler(){
   int lastTime = USLOSS_Clock();
   ++timeTracker;
   if(USLOSS_Clock()-lastTime >= 5){
-    USLOSS_Console("Clock Fun at %d\n",USLOSS_Clock());
+    // USLOSS_Console("Clock Fun at %d\n",USLOSS_Clock());
     // clock semaphore
     timeTracker = 0;
     // clock semaphore!!!!!!
@@ -191,7 +196,7 @@ void free_Procs(){
 /*Prints out Linked List*/
 void printList(PCB* listHead){
   if(listHead->nextPCB==NULL){
-    USLOSS_Console("empty list\n");
+    // USLOSS_Console("empty list\n");
     listHead=listHead->nextPCB;
     return;
   }
@@ -389,7 +394,7 @@ void startup()
   P1_Fork("P2_Startup", P2_Startup, NULL, 4 * USLOSS_MIN_STACK, 1);
 
   // int_enable();
-  USLOSS_Console("Startup finished");
+  // USLOSS_Console("Startup finished\n");
   dispatcher();
 
   /* Should never get here (sentinel will call USLOSS_Halt) */
@@ -407,7 +412,6 @@ void startup()
 void finish()
 {
   Check_Your_Privilege();
-  // free_Procs();
   USLOSS_Console("Goodbye.\n");
 } /* End of finish */
 
@@ -522,7 +526,7 @@ int P1_P(P1_Semaphore sem){
   Check_Your_Privilege();
   Semaphore* semP=(Semaphore*)sem;
   if(semP->valid>Clock_Sema&&semP->valid<MMU_Sema){
-    USLOSS_Console("In P1_P for %d,Sem Table Pos: %d\n",currPid,semP->valid);
+    // USLOSS_Console("In P1_P for %d,Sem Table Pos: %d\n",currPid,semP->valid);
     procTable[currPid].waitingOnDevice=1;
   }
   // check if the process is killed
@@ -549,11 +553,6 @@ int P1_P(P1_Semaphore sem){
       removeFromList(currPid);
       addToProcQue(currPid,*semP);
       dispatcher();
-      // USLOSS_Console("P Queue: ");
-      // printList(semP->queue);
-      // USLOSS_Console("P Rdy List: ");
-      // printList(&readyHead);
-      // USLOSS_Console("Exiting Loop for P1_P\n");
     }
     int_enable();
     // USLOSS_Console("In P1_P for %d\n",currPid);
@@ -572,9 +571,6 @@ int P1_V(P1_Semaphore sem){
   // interrupt disable HERE!
   int_disable();
   Semaphore* semP=(Semaphore*)sem;
-  // if(semP->valid!=50)
-  //   USLOSS_Console("Semaphore #: %d\n",semP->valid);
-  // printList(semP->queue);
   
 // check if the semaphore is valid
   if(semP==NULL||semP->valid<0){
@@ -823,7 +819,7 @@ int sentinel (void *notused)
   /*No Interupts within Part 1 so commented out*/
   // int deadlock=1;
   int i;
-  printList(&readyHead);
+  // printList(&readyHead);
   while (numProcs > 1){
     USLOSS_Console("in sentinel\n");
     //Check for deadlock here 
@@ -831,14 +827,8 @@ int sentinel (void *notused)
       if(procTable[i].state == 4&&procTable[i].waitingOnDevice==0){
         USLOSS_Console("Error: Deadlock\n");
         USLOSS_Halt(1);
-      // }else if(procTable[i].waitingOnDevice==1){
-      //   deadlock = 0;
       }
     }
-    // if(deadlock){
-    //  USLOSS_Console("Error: Deadlock\n");
-    //  USLOSS_Halt(1);
-    // }
     USLOSS_WaitInt();
   }
   USLOSS_Halt(0);
